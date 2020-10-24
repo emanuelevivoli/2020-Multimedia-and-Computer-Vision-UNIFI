@@ -15,10 +15,12 @@ from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_tra
 from loss import GeneratorLoss
 from model import Generator, Discriminator
 
-parser = argparse.ArgumentParser(description='Train Super Resolution Models')
+parser = argparse.ArgumentParser(description='Train Compression Artifact Removal Models')
 parser.add_argument('--crop_size', default=88, type=int, help='training images crop size')
-parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8],
-                    help='super resolution upscale factor')
+parser.add_argument('--upscale_factor', default=2, type=int, choices=[2, 4, 8],
+                    help='re-sizing upscale factor')
+parser.add_argument('--quality_factor', default=20, type=int, choices=[10, 20, 30, 40],
+                    help='dagrading quality factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number')
 
 
@@ -27,6 +29,7 @@ if __name__ == '__main__':
     
     CROP_SIZE = opt.crop_size
     UPSCALE_FACTOR = opt.upscale_factor
+    QUALITY_FACTOR = opt.quality_factor
     NUM_EPOCHS = opt.num_epochs
     
     train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
@@ -34,7 +37,7 @@ if __name__ == '__main__':
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=64, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
     
-    netG = Generator(UPSCALE_FACTOR)
+    netG = Generator(UPSCALE_FACTOR, QUALITY_FACTOR)
     print('# generator parameters:', sum(param.numel() for param in netG.parameters()))
     netD = Discriminator()
     print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
@@ -72,7 +75,9 @@ if __name__ == '__main__':
             if torch.cuda.is_available():
                 z = z.cuda()
             fake_img = netG(z)
-    
+            print('#size z:', z.size)
+            print('#size netG(z):', fake_img.size)
+
             netD.zero_grad()
             real_out = netD(real_img).mean()
             fake_out = netD(fake_img).mean()
@@ -84,7 +89,7 @@ if __name__ == '__main__':
             # (2) Update G network: minimize 1-D(G(z)) + Perception Loss + Image Loss + TV Loss
             ###########################
             netG.zero_grad()
-            g_loss = generator_criterion(fake_out, fake_img, real_img)
+            g_loss = generator_criterion(fake_out, fake_img, real_img, QUALITY_FACTOR)
             g_loss.backward()
             
             fake_img = netG(z)

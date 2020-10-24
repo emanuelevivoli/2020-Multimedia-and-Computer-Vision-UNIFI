@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torchvision.models.vgg import vgg16
+from utils.jpeg_layer import jpegLayer
 
 
 class GeneratorLoss(nn.Module):
@@ -13,17 +14,22 @@ class GeneratorLoss(nn.Module):
         self.loss_network = loss_network
         self.mse_loss = nn.MSELoss()
         self.tv_loss = TVLoss()
+        self.jpeg = jpegLayer
 
-    def forward(self, out_labels, out_images, target_images):
-        # Adversarial Loss
+    def forward(self, out_labels, out_images, target_images, quality_factor):
+        # Adversarial Loss (l^{SR}_{GEN})
         adversarial_loss = torch.mean(1 - out_labels)
-        # Perception Loss
+        # Perception Loss (l^{SR}_{VGG})
         perception_loss = self.mse_loss(self.loss_network(out_images), self.loss_network(target_images))
-        # Image Loss
+        # Image Loss (l^{SR}_{MSE})
         image_loss = self.mse_loss(out_images, target_images)
-        # TV Loss
+        # TV Loss (l_{TV})
         tv_loss = self.tv_loss(out_images)
-        return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss
+        # Jpeg Loss
+        c = 1
+        jpeg_loss = self.mse_loss(self.jpeg(out_images, quality_factor), self.jpeg(target_images, quality_factor))
+
+        return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss + c * jpeg_loss
 
 
 class TVLoss(nn.Module):

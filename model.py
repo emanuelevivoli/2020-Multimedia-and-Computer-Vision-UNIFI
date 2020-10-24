@@ -1,13 +1,16 @@
 import math
 import torch
 from torch import nn
-
+from utils.jpeg_layer import jpegLayer
 
 class Generator(nn.Module):
-    def __init__(self, scale_factor):
+    def __init__(self, scale_factor, quality_factor):
         upsample_block_num = int(math.log(scale_factor, 2))
 
         super(Generator, self).__init__()
+        self.quality_factor = quality_factor
+
+        self.jpeg = JpegComp()
         self.block1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=9, padding=4),
             nn.PReLU()
@@ -26,6 +29,7 @@ class Generator(nn.Module):
         self.block8 = nn.Sequential(*block8)
 
     def forward(self, x):
+        x = self.jpeg(x, self.quality_factor)
         block1 = self.block1(x)
         block2 = self.block2(block1)
         block3 = self.block3(block2)
@@ -115,3 +119,10 @@ class UpsampleBLock(nn.Module):
         x = self.pixel_shuffle(x)
         x = self.prelu(x)
         return x
+
+class JpegComp(nn.Module):
+    def __init__(self):
+        super(JpegComp, self).__init__()
+
+    def forward(self, input_, qf):
+        return jpegLayer(input_, qf)
