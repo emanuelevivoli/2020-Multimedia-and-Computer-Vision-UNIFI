@@ -1,4 +1,12 @@
+# Downloaded DIV2K Datasets 
 data/
-epochs/
 
+# Folders of SRGAN & CRGAN results, they contain:
+# - epochs
+# - statistics
+# - training_results
+results_SRGAN/
+results_CRGAN/
+
+# Python runtime files
 __pycache__
