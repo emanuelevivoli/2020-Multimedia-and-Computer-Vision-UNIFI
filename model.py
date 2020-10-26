@@ -33,6 +33,7 @@ class Generator(nn.Module):
         block5 = self.block5(block4)
         block6 = self.block6(block5)
         block7 = self.block7(block6)
+        # block7 = self.block7(block1)
         block8 = self.block8(block1 + block7)
 
         return (torch.tanh(block8) + 1) / 2
@@ -72,6 +73,10 @@ class Discriminator(nn.Module):
             nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2),
+
+            # nn.Conv2d(64, 512, kernel_size=3, stride=2, padding=1),
+            # nn.BatchNorm2d(512),
+            # nn.LeakyReLU(0.2),
 
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(512, 1024, kernel_size=1),

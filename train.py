@@ -16,7 +16,9 @@ from loss import GeneratorLoss
 from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
+parser.add_argument('--model_name', default='SRGAN', type=str, choices=['SRGAN', 'CRGAN'], help='model name to evaluate')
 parser.add_argument('--crop_size', default=88, type=int, help='training images crop size')
+parser.add_argument('--batch_size', default=64, type=int, help='training batch size')
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8],
                     help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number')
@@ -25,13 +27,17 @@ parser.add_argument('--num_epochs', default=100, type=int, help='train epoch num
 if __name__ == '__main__':
     opt = parser.parse_args()
     
+    MODEL_NAME = opt.model_name
     CROP_SIZE = opt.crop_size
+    BATCH_SIZE = opt.batch_size
     UPSCALE_FACTOR = opt.upscale_factor
     NUM_EPOCHS = opt.num_epochs
+
+    torch.autograd.set_detect_anomaly(True)
     
     train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
-    train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=64, shuffle=True)
+    train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
     
     netG = Generator(UPSCALE_FACTOR)
@@ -50,6 +56,7 @@ if __name__ == '__main__':
     optimizerD = optim.Adam(netD.parameters())
     
     results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
+    pre_path = 'results_' + MODEL_NAME + '/'
     
     for epoch in range(1, NUM_EPOCHS + 1):
         train_bar = tqdm(train_loader)
@@ -106,7 +113,7 @@ if __name__ == '__main__':
                 running_results['g_score'] / running_results['batch_sizes']))
     
         netG.eval()
-        out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
+        out_path = pre_path + 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         
@@ -147,8 +154,8 @@ if __name__ == '__main__':
                 index += 1
     
         # save model parameters
-        torch.save(netG.state_dict(), 'epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
-        torch.save(netD.state_dict(), 'epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
+        torch.save(netG.state_dict(), pre_path + 'epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
+        torch.save(netD.state_dict(), pre_path + 'epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
         # save loss\scores\psnr\ssim
         results['d_loss'].append(running_results['d_loss'] / running_results['batch_sizes'])
         results['g_loss'].append(running_results['g_loss'] / running_results['batch_sizes'])
@@ -158,7 +165,7 @@ if __name__ == '__main__':
         results['ssim'].append(valing_results['ssim'])
     
         if epoch % 10 == 0 and epoch != 0:
-            out_path = 'statistics/'
+            out_path = pre_path + 'statistics/'
             data_frame = pd.DataFrame(
                 data={'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 'Score_D': results['d_score'],
                       'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
