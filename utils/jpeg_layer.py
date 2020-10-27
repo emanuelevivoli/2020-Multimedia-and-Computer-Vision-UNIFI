@@ -6,6 +6,32 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import torch
 
+class jpeg_compression_transform(object):
+
+    def __init__(self, quality_factor):
+        self.quality_factor = quality_factor
+        
+    def __call__(self, img):
+        output = simg_jpeg_compression(img, self.quality_factor)
+        return output
+
+    def __repr__(self):
+        return self.__class__.__name__+'()'
+
+
+def simg_jpeg_compression(images, qf):
+    imgsTensor = torch.zeros_like(images)
+    for i, image in enumerate(images):
+        [height, width] = image.size()
+        image = torch.FloatTensor(1, height, width)
+        image = TF.to_pil_image(image.cpu())
+        outputIoStream = BytesIO()
+        image.save(outputIoStream, "JPEG", quality=qf, optimice=True)
+        outputIoStream.seek(0)
+        image_comp = Image.open(outputIoStream)
+        imgsTensor[i, :, :] = TF.to_tensor(image_comp)
+    return imgsTensor
+
 
 def jpeg_compression(images, qf):
     imgsTensor = torch.zeros_like(images)
@@ -16,7 +42,6 @@ def jpeg_compression(images, qf):
         outputIoStream.seek(0)
         image_comp = Image.open(outputIoStream)
         imgsTensor[i, :, :, :] = TF.to_tensor(image_comp)
-
     return imgsTensor.cuda()
 
 

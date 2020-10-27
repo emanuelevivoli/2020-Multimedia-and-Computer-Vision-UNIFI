@@ -4,15 +4,16 @@ from torch import nn
 from utils.jpeg_layer import jpegLayer
 
 class Generator(nn.Module):
-    def __init__(self, scale_factor, quality_factor):
-        upsample_block_num = int(math.log(scale_factor, 2))
-
+    def __init__(self, quality_factor):
+        
         super(Generator, self).__init__()
         self.quality_factor = quality_factor
 
         self.jpeg = JpegComp()
         self.block1 = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=9, padding=4),
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.PReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=2),
             nn.PReLU()
         )
         self.block2 = ResidualBlock(64)
@@ -24,21 +25,30 @@ class Generator(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64)
         )
-        block8 = [UpsampleBLock(64, 2) for _ in range(upsample_block_num)]
-        block8.append(nn.Conv2d(64, 3, kernel_size=9, padding=4))
-        self.block8 = nn.Sequential(*block8)
+        self.block8 = nn.Sequential(
+            UpsampleBLock(64, 2),
+            nn.Conv2d(64, 3, kernel_size=9, padding=4)
+        )
 
     def forward(self, x):
         x = self.jpeg(x, self.quality_factor)
+        # print('#Gen      x:', x.size()) 
         block1 = self.block1(x)
+        # print('#Gen block1:', block1.size()) 
         block2 = self.block2(block1)
+        # print('#Gen block2:', block2.size()) 
         block3 = self.block3(block2)
+        # print('#Gen block3:', block3.size())
         block4 = self.block4(block3)
+        # print('#Gen block4:', block4.size()) 
         block5 = self.block5(block4)
+        # print('#Gen block5:', block5.size()) 
         block6 = self.block6(block5)
+        # print('#Gen block6:', block6.size()) 
         block7 = self.block7(block6)
+        # print('#Gen block7:', block7.size())
         block8 = self.block8(block1 + block7)
-
+        # print('#Gen block8:', block8.size())
         return (torch.tanh(block8) + 1) / 2
 
 
