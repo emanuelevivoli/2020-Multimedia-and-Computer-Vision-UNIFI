@@ -5,8 +5,12 @@ data/
 # - epochs
 # - statistics
 # - training_results
-results_SRGAN/
-results_CRGAN/
+## results_SRGAN/
+## results_CRGAN/
+*.pth
+*.csv
+*.png
+
 
 # Python runtime files
 __pycache__
