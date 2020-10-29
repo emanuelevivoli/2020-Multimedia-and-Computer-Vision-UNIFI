@@ -15,6 +15,14 @@ from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_tra
 from loss import GeneratorLoss
 from model import Generator, Discriminator
 
+#########################
+# Show image inline
+#########################
+# ! import matplotlib.pyplot as plt
+# ! import matplotlib.image as mpimg
+# ! import numpy as np
+#########################
+
 parser = argparse.ArgumentParser(description='Train Compression Artifact Removal Models')
 parser.add_argument('--crop_size', default=88, type=int, help='training images crop size')
 parser.add_argument('--batch_size', default=64, type=int, help='training batch size')
@@ -57,11 +65,16 @@ if __name__ == '__main__':
     
     results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
     pre_path = 'results_' + MODEL_NAME + '/'
+
+    # ! jpeg_folder_images = 'JPEG_examples/'
     
     for epoch in range(1, NUM_EPOCHS + 1):
         train_bar = tqdm(train_loader)
         running_results = {'batch_sizes': 0, 'd_loss': 0, 'g_loss': 0, 'd_score': 0, 'g_score': 0}
-    
+
+        # to distinguish
+        # ! jpeg_number = 0 
+
         netG.train()
         netD.train()
         for jpeg, target in train_bar:
@@ -71,6 +84,13 @@ if __name__ == '__main__':
 
             # torch.Size([8, 3, 88, 88])
             # print('#size target:', target.size())
+
+            #########################
+            # Show jpeg images batch
+            # ! temp_jpeg = np.transpose(jpeg[0, :, :, :], (1,2,0))
+            # ! imgplot = plt.imshow(temp_jpeg)
+            # ! plt.savefig(jpeg_folder_images + 'train/' + str(jpeg_number) + '.jpg')
+            #########################
 
             g_update_first = True
             batch_size = target.size(0)
@@ -88,6 +108,7 @@ if __name__ == '__main__':
             if torch.cuda.is_available():
                 z = z.cuda()
             fake_img = netG(z)
+            # ! fake_img = netG(z, jpeg_number)
 
             # torch.Size([8, 3, 88, 88])
             # print('#size z:', z.size()) 
@@ -127,8 +148,10 @@ if __name__ == '__main__':
                 running_results['d_score'] / running_results['batch_sizes'],
                 running_results['g_score'] / running_results['batch_sizes']))
     
+            # ! jpeg_number += 1
+
         netG.eval()
-        out_path = pre_path + 'training_results/' + 'crop'+str(CROP_SIZE) + '_batch'+str(BATCH_SIZE) + '_upscale'+str(UPSCALE_FACTOR) + '_qf'+str(QUALITY_FACTOR) + '_epochs'+str(NUM_EPOCHS) + '/'
+        out_path = pre_path + 'val_results/' + 'crop'+str(CROP_SIZE) + '_batch'+str(BATCH_SIZE) + '_upscale'+str(UPSCALE_FACTOR) + '_qf'+str(QUALITY_FACTOR) + '_epochs'+str(NUM_EPOCHS) + '/'
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         
@@ -136,6 +159,10 @@ if __name__ == '__main__':
             val_bar = tqdm(val_loader)
             valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
             val_images = []
+
+            # to distinguish
+            # ! jpeg_number = 0 
+
             for val_jr, val_hr in val_bar:
                 batch_size = val_jr.size(0)
                 valing_results['batch_sizes'] += batch_size
@@ -154,9 +181,19 @@ if __name__ == '__main__':
                     desc='[converting LR images to CR images] PSNR: %.4f dB SSIM: %.4f' % (
                         valing_results['psnr'], valing_results['ssim']))
         
+                #########################
+                # Show jpeg images batch
+                # ! temp_jpeg = np.transpose(val_jr[0, :, :, :], (1,2,0))
+                # ! imgplot = plt.imshow(temp_jpeg)
+                # ! plt.savefig(jpeg_folder_images + 'val/' + str(jpeg_number) + '.jpg')
+                #########################
+
                 val_images.extend(
-                    [display_transform()(val_jr.squeeze(0)), display_transform()(hr.data.cpu().squeeze(0)),
+                    [display_transform()(val_jr.squeeze(0)), display_transform()(val_hr.squeeze(0)),
                      display_transform()(jrr.data.cpu().squeeze(0))])
+                
+                # ! jpeg_number += 1
+
             val_images = torch.stack(val_images)
             val_images = torch.chunk(val_images, val_images.size(0) // 15)
             val_save_bar = tqdm(val_images, desc='[saving training results]')
@@ -183,4 +220,4 @@ if __name__ == '__main__':
                 data={'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 'Score_D': results['d_score'],
                       'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
                 index=range(1, epoch + 1))
-            data_frame.to_csv(out_path + 'jr_' +'crop'+str(CROP_SIZE) + '_batch'+str(BATCH_SIZE) + '_upscale'+str(UPSCALE_FACTOR) + '_qf'+str(QUALITY_FACTOR) + '_epochs'+str(NUM_EPOCHS)  + '_train_results.csv', index_label='Epoch')
+            data_frame.to_csv(out_path + 'crop%d_batch%d_upscale%d_qf%d_epochs%d' % (CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, NUM_EPOCHS) + '_train_results.csv', index_label='Epoch')

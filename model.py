@@ -3,6 +3,15 @@ import torch
 from torch import nn
 from utils.jpeg_layer import jpegLayer
 
+#########################
+# Show image inline
+#########################
+# ! import matplotlib.pyplot as plt
+# ! import matplotlib.image as mpimg
+# ! import numpy as np
+#########################
+
+
 class Generator(nn.Module):
     def __init__(self, quality_factor):
         
@@ -30,9 +39,19 @@ class Generator(nn.Module):
             nn.Conv2d(64, 3, kernel_size=9, padding=4)
         )
 
-    def forward(self, x):
+    def forward(self, x, jpeg_number=0):
         x = self.jpeg(x, self.quality_factor)
         # print('#Gen      x:', x.size()) 
+        
+        #########################
+        # Show jpeg images batch
+        # ! jpeg_folder_images = 'JPEG_examples/'
+        # ! temp_jpeg = x
+        # ! temp_jpeg = np.transpose(temp_jpeg.cpu()[0, :, :, :], (1,2,0))
+        # ! imgplot = plt.imshow(temp_jpeg)
+        # ! plt.savefig(jpeg_folder_images + 'forward/' + str(jpeg_number) + '.jpg')
+        #########################
+        
         block1 = self.block1(x)
         # print('#Gen block1:', block1.size()) 
         block2 = self.block2(block1)
