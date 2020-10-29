@@ -8,7 +8,7 @@ data/
 ## results_SRGAN/
 ## results_CRGAN/
 *.pth
-*.csv
+# *.csv
 *.png
 
 # Python runtime files
