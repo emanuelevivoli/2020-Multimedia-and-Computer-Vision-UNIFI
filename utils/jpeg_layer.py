@@ -19,18 +19,15 @@ class jpeg_compression_transform(object):
         return self.__class__.__name__+'()'
 
 
-def simg_jpeg_compression(images, qf):
-    imgsTensor = torch.zeros_like(images)
-    for i, image in enumerate(images):
-        [height, width] = image.size()
-        image = torch.FloatTensor(1, height, width)
-        image = TF.to_pil_image(image.cpu())
-        outputIoStream = BytesIO()
-        image.save(outputIoStream, "JPEG", quality=qf, optimice=True)
-        outputIoStream.seek(0)
-        image_comp = Image.open(outputIoStream)
-        imgsTensor[i, :, :] = TF.to_tensor(image_comp)
-    return imgsTensor
+def simg_jpeg_compression(image, qf):
+    imgTensor = torch.zeros_like(image)
+    image = TF.to_pil_image(image.cpu())
+    outputIoStream = BytesIO()
+    image.save(outputIoStream, "JPEG", quality=qf, optimice=True)
+    outputIoStream.seek(0)
+    image_comp = Image.open(outputIoStream)
+    imgTensor[: , :, :] = TF.to_tensor(image_comp)
+    return imgTensor
 
 
 def jpeg_compression(images, qf):
