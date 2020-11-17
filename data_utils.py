@@ -31,7 +31,7 @@ def jr_transform(quality_factor):
 def display_transform():
     return Compose([
         ToPILImage(),
-        Resize(400),
+        # Resize(400),
         CenterCrop(400),
         ToTensor()
     ])
