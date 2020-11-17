@@ -40,7 +40,7 @@ class Generator(nn.Module):
         )
 
     def forward(self, x, jpeg_number=0):
-        x = self.jpeg(x, self.quality_factor)
+        jpeg = self.jpeg(x, self.quality_factor)
         # print('#Gen      x:', x.size()) 
         
         #########################
@@ -52,7 +52,7 @@ class Generator(nn.Module):
         # ! plt.savefig(jpeg_folder_images + 'forward/' + str(jpeg_number) + '.jpg')
         #########################
         
-        block1 = self.block1(x)
+        block1 = self.block1(jpeg)
         # print('#Gen block1:', block1.size()) 
         block2 = self.block2(block1)
         # print('#Gen block2:', block2.size()) 
