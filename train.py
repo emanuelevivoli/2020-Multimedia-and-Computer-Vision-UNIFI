@@ -13,7 +13,7 @@ from tqdm import tqdm
 import pytorch_ssim
 from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform
 from loss import GeneratorLoss
-from model import Generator, Discriminator
+from model import Generator, VGGStyleDiscriminator128 # , Discriminator
 
 from datetime import datetime
 
@@ -28,12 +28,12 @@ from datetime import datetime
 #########################
 
 parser = argparse.ArgumentParser(description='Train Compression Artifact Removal Models')
-parser.add_argument('--crop_size', default=88, type=int, help='training images crop size')
+parser.add_argument('--crop_size', default=128, type=int, help='training images crop size')
 parser.add_argument('--batch_size', default=64, type=int, help='training batch size')
 parser.add_argument('--upscale_factor', default=2, type=int, choices=[2, 4, 8], help='re-sizing upscale factor')
 parser.add_argument('--quality_factor', default=20, type=int, choices=[10, 20, 30, 40], help='dagrading quality factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number')
-parser.add_argument('--fake', default=False, type=bool, choices=[True, False], help='Random input to generator if fake = True')
+# parser.add_argument('--fake', default=False, type=bool, choices=[True, False], help='Random input to generator if fake = True')
 parser.add_argument('--skip_gen', default=False, type=bool, choices=[True, False], help='Jpeg input for Discriminator (no uses of Generator at all) if skip_gen = True')
 
 
@@ -48,7 +48,6 @@ if __name__ == '__main__':
     UPSCALE_FACTOR = opt.upscale_factor
     QUALITY_FACTOR = opt.quality_factor
     NUM_EPOCHS = opt.num_epochs
-    FAKE = opt.fake
     SKIP_GEN = opt.skip_gen
 
     torch.autograd.set_detect_anomaly(True)
@@ -60,7 +59,8 @@ if __name__ == '__main__':
     
     netG = Generator(QUALITY_FACTOR)
     print('# generator parameters:', sum(param.numel() for param in netG.parameters()))
-    netD = Discriminator()
+    # netD = Discriminator()
+    netD = VGGStyleDiscriminator128()
     print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
     
     generator_criterion = GeneratorLoss()
@@ -104,11 +104,8 @@ if __name__ == '__main__':
                 real_img = real_img.cuda()
             
             # ? z.size = [batch_size, channels, height, length]
-            if FAKE:
-                noise = torch.rand(target.size()) # get_white_noise_tensor(target)
-                z = Variable(noise)
-            else:
-                z = Variable(target)
+          
+            z = Variable(target)
 
             if torch.cuda.is_available():
                 z = z.cuda()
@@ -139,7 +136,8 @@ if __name__ == '__main__':
             # ! they must be different (real_out + fake_out)
             
             # ? d_loss = torch.log(1 - real_out + fake_out)
-            d_loss = 1 - real_out + fake_out
+            # ??? d_loss = 1 - real_out + fake_out
+            d_loss = - (torch.log(real_out) + torch.log(1 - fake_out))
             d_loss.backward(retain_graph=True)
             optimizerD.step()
     
@@ -149,7 +147,8 @@ if __name__ == '__main__':
             netG.zero_grad()
             jpeg_loss, mse_loss, gen_loss, vgg_loss, tv_loss = generator_criterion(fake_out, fake_img, real_img, QUALITY_FACTOR)
             # g_loss = (0.5 * d_loss.item()) * gen_loss + (1 - 0.5 * d_loss.item()) * ( jpeg_loss + 0.001 * gen_loss + vgg_loss + mse_loss + tv_loss )
-            g_loss = jpeg_loss + 0.001 * gen_loss + vgg_loss + mse_loss + tv_loss
+            # ??? g_loss = gen_loss * 0.001 + vgg_loss + mse_loss + tv_loss + jpeg_loss
+            g_loss = gen_loss # * 0.001 + vgg_loss + mse_loss + tv_loss + jpeg_loss
             g_loss.backward()
             
             fake_img = netG(z)

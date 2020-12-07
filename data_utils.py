@@ -4,7 +4,7 @@ from os.path import join
 from PIL import Image
 from torch.utils.data.dataset import Dataset
 from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize
-from utils.jpeg_layer import jpeg_compression_transform
+from utils.jpeg_layer import jpeg_compression_transform, simg_jpeg_compression
 
 
 def is_image_file(filename):
@@ -32,7 +32,7 @@ def display_transform():
     return Compose([
         ToPILImage(),
         # Resize(400),
-        CenterCrop(400),
+        # CenterCrop(400),
         ToTensor()
     ])
 
@@ -43,11 +43,12 @@ class TrainDatasetFromFolder(Dataset):
         self.image_filenames = [join(dataset_dir, x) for x in listdir(dataset_dir) if is_image_file(x)]
         crop_size = calculate_valid_crop_size(crop_size, upscale_factor)
         self.hr_transform = train_hr_transform(crop_size)
-        self.jr_transform = jr_transform(quality_factor)
+        self.quality_factor = quality_factor
+        # self.jr_transform = jr_transform(quality_factor)
 
     def __getitem__(self, index):
         hr_image = self.hr_transform(Image.open(self.image_filenames[index]))
-        jr_image = self.jr_transform(hr_image)
+        jr_image = simg_jpeg_compression(hr_image, self.quality_factor)
         return jr_image, hr_image
 
     def __len__(self):
@@ -60,7 +61,7 @@ class ValDatasetFromFolder(Dataset):
         self.upscale_factor = upscale_factor
         self.quality_factor = quality_factor
         self.image_filenames = [join(dataset_dir, x) for x in listdir(dataset_dir) if is_image_file(x)]
-        self.jr_transform = jr_transform(quality_factor)
+        # self.jr_transform = jr_transform(quality_factor)
 
     def __getitem__(self, index):
         hr_image = Image.open(self.image_filenames[index])
@@ -68,31 +69,10 @@ class ValDatasetFromFolder(Dataset):
         crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
 
         hr_image = ToTensor()(CenterCrop(crop_size)(hr_image))
-        jr_image = self.jr_transform(hr_image)
+        jr_image = simg_jpeg_compression(hr_image, self.quality_factor)
 
         return jr_image, hr_image
 
     def __len__(self):
         return len(self.image_filenames)
 
-
-class TestDatasetFromFolder(Dataset):
-    def __init__(self, dataset_dir, upscale_factor):
-        super(TestDatasetFromFolder, self).__init__()
-        self.lr_path = dataset_dir + '/SRF_' + str(upscale_factor) + '/data/'
-        self.hr_path = dataset_dir + '/SRF_' + str(upscale_factor) + '/target/'
-        self.upscale_factor = upscale_factor
-        self.lr_filenames = [join(self.lr_path, x) for x in listdir(self.lr_path) if is_image_file(x)]
-        self.hr_filenames = [join(self.hr_path, x) for x in listdir(self.hr_path) if is_image_file(x)]
-
-    def __getitem__(self, index):
-        image_name = self.lr_filenames[index].split('/')[-1]
-        lr_image = Image.open(self.lr_filenames[index])
-        w, h = lr_image.size
-        hr_image = Image.open(self.hr_filenames[index])
-        hr_scale = Resize((self.upscale_factor * h, self.upscale_factor * w), interpolation=Image.BICUBIC)
-        hr_restore_img = hr_scale(lr_image)
-        return image_name, ToTensor()(lr_image), ToTensor()(hr_restore_img), ToTensor()(hr_image)
-
-    def __len__(self):
-        return len(self.lr_filenames)

@@ -18,9 +18,9 @@ class GeneratorLoss(nn.Module):
 
     def forward(self, out_labels, out_images, target_images, quality_factor):
         # Adversarial Loss (l^{SR}_{GEN})
-        # ? adversarial_loss = torch.log(torch.mean(1 - out_labels))
         # ? adversarial_loss = 1 - out_labels
-        adversarial_loss = torch.mean(1 - out_labels)
+        # ??? adversarial_loss = torch.mean(1 - out_labels)
+        adversarial_loss = - torch.log(out_labels)
         # Perception Loss (l^{SR}_{VGG})
         perception_loss = self.mse_loss(self.loss_network(out_images), self.loss_network(target_images))
         # Image Loss (l^{SR}_{MSE})
