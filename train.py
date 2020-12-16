@@ -11,21 +11,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import pytorch_ssim
-from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform
+from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform, weight_init
 from loss import GeneratorLoss
+import torch.nn as nn
 from model import Generator, VGGStyleDiscriminator128 # , Discriminator
 
 from datetime import datetime
-
-# from utils.noise_image import get_white_noise_tensor
-
-#########################
-# Show image inline
-#########################
-# ! import matplotlib.pyplot as plt
-# ! import matplotlib.image as mpimg
-# ! import numpy as np
-#########################
 
 parser = argparse.ArgumentParser(description='Train Compression Artifact Removal Models')
 parser.add_argument('--crop_size', default=128, type=int, help='training images crop size')
@@ -33,7 +24,6 @@ parser.add_argument('--batch_size', default=64, type=int, help='training batch s
 parser.add_argument('--upscale_factor', default=2, type=int, choices=[2, 4, 8], help='re-sizing upscale factor')
 parser.add_argument('--quality_factor', default=20, type=int, choices=[10, 20, 30, 40], help='dagrading quality factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number')
-# parser.add_argument('--fake', default=False, type=bool, choices=[True, False], help='Random input to generator if fake = True')
 parser.add_argument('--skip_gen', default=False, type=bool, choices=[True, False], help='Jpeg input for Discriminator (no uses of Generator at all) if skip_gen = True')
 
 
@@ -50,32 +40,51 @@ if __name__ == '__main__':
     NUM_EPOCHS = opt.num_epochs
     SKIP_GEN = opt.skip_gen
 
+    weight_path_netD = 'results_CRGAN/epochs/run15-12-2020_23:34:50_crop128_batch64_upscale2_qf20_epoch5_netD.pth'
+
     torch.autograd.set_detect_anomaly(True)
     
-    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
-    val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
+    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, crop_numb=64)
+    # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
+    val_set = TrainDatasetFromFolder('data/DIV2K_valid_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, train=False)
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
     
     netG = Generator(QUALITY_FACTOR)
     print('# generator parameters:', sum(param.numel() for param in netG.parameters()))
-    # netD = Discriminator()
-    netD = VGGStyleDiscriminator128()
+    
+    netD = VGGStyleDiscriminator128() # Discriminator()
     print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
+
+    # ! load weights for Discriminator
+    netD.load_state_dict(torch.load(weight_path_netD))
+
+    # ! xavier inizialization
+    weight_init(netG)
+    # weight_init(netD)
     
     generator_criterion = GeneratorLoss()
+    discriminator_criterion = nn.BCELoss()
     
     if torch.cuda.is_available():
         netG.cuda()
         netD.cuda()
         generator_criterion.cuda()
+        discriminator_criterion.cuda()
     
     optimizerG = optim.Adam(netG.parameters())
     optimizerD = optim.Adam(netD.parameters())
     
-    results = { 'd_loss': [], 'g_loss': [], 
+    results = { 'TRAIN_d_loss': [], 'TRAIN_g_loss': [], 
+                'TRAIN_d_score': [], 'TRAIN_g_score': [],
+                
+                'VAL_d_loss': [],
+                'VAL_d_score': [], 'VAL_g_score': [],
+                
                 'jpeg_loss': [], 'gen_loss': [], 'vgg_loss': [], 'mse_loss': [], 'tv_loss': [],
-                'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
+                
+                #, 'psnr': [], 'ssim': []
+                }
     
     pre_path = 'results_' + MODEL_NAME + '/'
     
@@ -88,7 +97,6 @@ if __name__ == '__main__':
         netG.train()
         netD.train()
         for jpeg, target in train_bar:
-            # ? jpeg, target are tensor [batch_size, channels, height, length]
 
             g_update_first = True
             batch_size = target.size(0)
@@ -98,46 +106,51 @@ if __name__ == '__main__':
             # (1) Update D network: maximize D(x)-1-D(G(z))
             ###########################
             
-            # ? real_img.size = [batch_size, channels, height, length]
-            real_img = Variable(target)
-            if torch.cuda.is_available():
-                real_img = real_img.cuda()
-            
-            # ? z.size = [batch_size, channels, height, length]
-          
-            z = Variable(target)
-
-            if torch.cuda.is_available():
-                z = z.cuda()
-
-            # ? fake_img.size = [batch_size, channels, height, length]
-            if SKIP_GEN:
-                
-                if torch.cuda.is_available():
-                    jpeg = jpeg.cuda()
-
-                fake_img = Variable(jpeg)
-                
-            else:
-                fake_img = netG(z)
+            # real_img = Variable(target)
+            # if torch.cuda.is_available():
+            #     real_img = real_img.cuda()
+            # z = Variable(target)
+            # if torch.cuda.is_available():
+            #     z = z.cuda()
+            # if SKIP_GEN:
+            #     if torch.cuda.is_available():
+            #         jpeg = jpeg.cuda()
+            #     fake_img = Variable(jpeg)
+            # else:
+            #     fake_img = netG(z)
 
             netD.zero_grad()
 
-            # ! SCORE_D (real_out) e SCORE_G (fake_out)
+            # real_out = netD(real_img).mean()
+            # fake_out = netD(fake_img).mean()
 
-            # ? netD(real_img).size = [batch_size, 1]
-            # ? netD(real_img).mean().size = [1]
-            real_out = netD(real_img).mean()
+            real_img = Variable(target)
+            fake_img = Variable(target)
 
-            # ? netD(fake_img).size = [batch_size, 1]
-            # ? netD(fake_img).mean().size = [1]
-            fake_out = netD(fake_img).mean()
+            if torch.cuda.is_available():
+                real_img = real_img.cuda()
+                fake_img = fake_img.cuda()
             
-            # ! they must be different (real_out + fake_out)
+            real_out = netD(real_img)
+            fake_img = netG(fake_img)
+            fake_out = netD(fake_img)
+
+            output = torch.cat((real_out, fake_out), 0).view(-1)
+
+            labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
+            labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
+            labels = torch.cat((labels_ones, labels_zero), 0).view(-1)
+
+            if torch.cuda.is_available():
+                output = output.cuda()
+                labels = labels.cuda()
+            
+            d_loss = discriminator_criterion(output, labels)
             
             # ? d_loss = torch.log(1 - real_out + fake_out)
-            # ??? d_loss = 1 - real_out + fake_out
-            d_loss = - (torch.log(real_out) + torch.log(1 - fake_out))
+            # d_loss = 1 - real_out + fake_out
+            # d_loss = - (torch.log(real_out) + torch.log(1 - fake_out))
+            
             d_loss.backward(retain_graph=True)
             optimizerD.step()
     
@@ -146,13 +159,12 @@ if __name__ == '__main__':
             ###########################
             netG.zero_grad()
             jpeg_loss, mse_loss, gen_loss, vgg_loss, tv_loss = generator_criterion(fake_out, fake_img, real_img, QUALITY_FACTOR)
-            # g_loss = (0.5 * d_loss.item()) * gen_loss + (1 - 0.5 * d_loss.item()) * ( jpeg_loss + 0.001 * gen_loss + vgg_loss + mse_loss + tv_loss )
-            # ??? g_loss = gen_loss * 0.001 + vgg_loss + mse_loss + tv_loss + jpeg_loss
-            g_loss = gen_loss # * 0.001 + vgg_loss + mse_loss + tv_loss + jpeg_loss
+            # g_loss = gen_loss * 0.001 + vgg_loss + mse_loss + tv_loss # + jpeg_loss
+            g_loss = gen_loss * 0.001 + vgg_loss + mse_loss + tv_loss + jpeg_loss
             g_loss.backward()
             
-            fake_img = netG(z)
-            fake_out = netD(fake_img).mean()
+            # fake_img = netG(fake_img)
+            # fake_out = netD(fake_img).mean()
             
             optimizerG.step()
 
@@ -171,43 +183,82 @@ if __name__ == '__main__':
             running_results['d_score'] += real_out.item() * batch_size
             running_results['g_score'] += fake_out.item() * batch_size
     
-            train_bar.set_description(desc='[%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f' % (
+            train_bar.set_description(desc='[%d/%d] (TRAIN) Loss [ D | G ]: [%.4f | %.4f] - Score [D(x) | D(G(x))]: [%.4f | %.4f] ' % (
                 epoch, NUM_EPOCHS, running_results['d_loss'] / running_results['batch_sizes'],
                 running_results['g_loss'] / running_results['batch_sizes'],
                 running_results['d_score'] / running_results['batch_sizes'],
                 running_results['g_score'] / running_results['batch_sizes']))
 
-        netG.eval()
+        
         file_name = 'run'+str(DAY_TIME) + '_crop'+str(CROP_SIZE) + '_batch'+str(BATCH_SIZE) + '_upscale'+str(UPSCALE_FACTOR) + '_qf'+str(QUALITY_FACTOR) + '_epochs'+str(NUM_EPOCHS)
         out_path = pre_path + 'val_results/' + file_name + '/'
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         
+        netG.eval()
+        netD.eval()
         with torch.no_grad():
             val_bar = tqdm(val_loader)
-            valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
+            # valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
+            valing_results = {'batch_sizes': 0, 'd_loss': 0, 'd_score': 0, 'g_score': 0}
             val_images = []
 
             for val_jr, val_hr in val_bar:
+
                 batch_size = val_jr.size(0)
                 valing_results['batch_sizes'] += batch_size
-                hr = val_hr
+
+                val_real_img = Variable(val_hr)
+                val_fake_img = Variable(val_hr)
+
                 if torch.cuda.is_available():
-                    hr = hr.cuda()
-                jrr = netG(hr)
-        
-                batch_mse = ((jrr - hr) ** 2).data.mean()
-                valing_results['mse'] += batch_mse * batch_size
-                batch_ssim = pytorch_ssim.ssim(jrr, hr).item()
-                valing_results['ssims'] += batch_ssim * batch_size
-                valing_results['psnr'] = 10 * log10((hr.max()**2) / (valing_results['mse'] / valing_results['batch_sizes']))
-                valing_results['ssim'] = valing_results['ssims'] / valing_results['batch_sizes']
-                val_bar.set_description(
-                    desc='[converting LR images to CR images] PSNR: %.4f dB SSIM: %.4f' % (
-                        valing_results['psnr'], valing_results['ssim']))
+                    val_real_img = val_real_img.cuda()
+                    val_fake_img = val_fake_img.cuda()
+                
+                val_real_out = netD(val_real_img)
+                val_fake_img = netG(val_fake_img)
+                val_fake_out = netD(val_fake_img)
+
+                val_output = torch.cat((val_real_out, val_fake_out), 0).view(-1)
+
+                val_labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
+                val_labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
+                val_labels = torch.cat((val_labels_ones, val_labels_zero), 0).view(-1)
+
+                if torch.cuda.is_available():
+                    val_output = val_output.cuda()
+                    val_labels = val_labels.cuda()
+                
+                val_d_loss = discriminator_criterion(val_output, val_labels)
+                
+                # loss for current batch before optimization 
+                valing_results['d_loss'] += val_d_loss.item() * batch_size
+
+                valing_results['d_score'] += (val_real_out).mean().item() * batch_size
+                valing_results['g_score'] += (val_fake_out).mean().item() * batch_size
+                
+                # batch_mse = ((jrr - hr) ** 2).data.mean()
+                # valing_results['mse'] += batch_mse * batch_size
+                # batch_ssim = pytorch_ssim.ssim(jrr, hr).item()
+                # valing_results['ssims'] += batch_ssim * batch_size
+                # valing_results['psnr'] = 10 * log10((hr.max()**2) / (valing_results['mse'] / valing_results['batch_sizes']))
+                # valing_results['ssim'] = valing_results['ssims'] / valing_results['batch_sizes']
+                # val_bar.set_description(
+                #     desc='[Validation] Jpeg: [%d|%d|%d|%d] Real: [%d|%d|%d|%d] Fake: [%d|%d|%d|%d]' % (
+                #         val_jr.size(0), val_jr.size(1), val_jr.size(2), val_jr.size(3),
+                #         val_hr.size(0), val_hr.size(1), val_hr.size(2), val_hr.size(3),
+                #         jrr.size(0), jrr.size(1), jrr.size(2), jrr.size(3),
+                #         ))
+
+                val_bar.set_description(desc='[%d/%d] (VAL)   Loss [ D | G ]: [%.4f |  ???  ] - Score [D(x) | D(G(x))]: [%.4f | %.4f]' % (
+                    epoch, NUM_EPOCHS, 
+                    valing_results['d_loss'] / valing_results['batch_sizes'],
+                    valing_results['d_score'] / valing_results['batch_sizes'],
+                    valing_results['g_score'] / valing_results['batch_sizes']))
+
                 val_images.extend(
-                    [display_transform()(val_jr.squeeze(0)), display_transform()(hr.data.cpu().squeeze(0)),
-                     display_transform()(jrr.data.cpu().squeeze(0))])
+                    [display_transform()(val_jr.squeeze(0)), display_transform()(val_hr.squeeze(0)),
+                     display_transform()(val_fake_img.data.cpu().squeeze(0))])
 
             val_images = torch.stack(val_images)
             val_images = torch.chunk(val_images, val_images.size(0) // 15)
@@ -219,13 +270,19 @@ if __name__ == '__main__':
                 index += 1
     
         # save model parameters
-        torch.save(netG.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netG.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
-        torch.save(netD.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netD.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
+        # torch.save(netG.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netG.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
+        # torch.save(netD.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netD.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
+
+
         # save loss\scores\psnr\ssim
-        results['d_loss'].append(running_results['d_loss'] / running_results['batch_sizes'])
-        results['g_loss'].append(running_results['g_loss'] / running_results['batch_sizes'])
-        results['d_score'].append(running_results['d_score'] / running_results['batch_sizes'])
-        results['g_score'].append(running_results['g_score'] / running_results['batch_sizes'])
+        results['TRAIN_d_loss'].append(running_results['d_loss'] / running_results['batch_sizes'])
+        results['TRAIN_g_loss'].append(running_results['g_loss'] / running_results['batch_sizes'])
+        results['TRAIN_d_score'].append(running_results['d_score'] / running_results['batch_sizes'])
+        results['TRAIN_g_score'].append(running_results['g_score'] / running_results['batch_sizes'])
+
+        results['VAL_d_loss'].append(valing_results['d_loss'] / valing_results['batch_sizes'])
+        results['VAL_d_score'].append(valing_results['d_score'] / valing_results['batch_sizes'])
+        results['VAL_g_score'].append(valing_results['g_score'] / valing_results['batch_sizes'])
 
         results['jpeg_loss'].append(losses_results['jpeg_loss'] / running_results['batch_sizes'])
         results['gen_loss'].append(losses_results['gen_loss'] / running_results['batch_sizes'])
@@ -233,17 +290,24 @@ if __name__ == '__main__':
         results['mse_loss'].append(losses_results['mse_loss'] / running_results['batch_sizes'])
         results['tv_loss'].append(losses_results['tv_loss'] / running_results['batch_sizes'])
 
-        results['psnr'].append(valing_results['psnr'])
-        results['ssim'].append(valing_results['ssim'])
+        # results['psnr'].append(valing_results['psnr'])
+        # results['ssim'].append(valing_results['ssim'])
     
         if epoch % 2 == 0 and epoch != 0:
             out_path = pre_path + 'statistics/'
             data_frame = pd.DataFrame(
                 data={
-                    'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 
-                    'Score_D': results['d_score'], 'Score_G': results['g_score'], 
+                    'TRAIN_Loss_D': results['TRAIN_d_loss'], 
+                    'TRAIN_Loss_G': results['TRAIN_g_loss'], 
+                    'TRAIN_Score_D': results['TRAIN_d_score'], 
+                    'TRAIN_Score_G': results['TRAIN_g_score'], 
+
+                    'VAL_Loss_D': results['VAL_d_loss'], 
+                    'VAL_Score_D': results['VAL_d_score'], 
+                    'VAL_Score_G': results['VAL_g_score'], 
+                    
                     'Loss_JPEG': results['jpeg_loss'], 'Loss_GEN': results['gen_loss'], 'Loss_VGG': results['vgg_loss'], 'Loss_MSE': results['mse_loss'], 'Loss_TV': results['tv_loss'],
-                    'PSNR': results['psnr'], 'SSIM': results['ssim']
+                    # 'PSNR': results['psnr'], 'SSIM': results['ssim']
                 },
                 index=range(1, epoch + 1))
             data_frame.to_csv(out_path + file_name + '_train_results.csv', index_label='Epoch')
