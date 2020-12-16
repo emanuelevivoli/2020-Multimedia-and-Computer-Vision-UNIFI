@@ -30,7 +30,6 @@ class GeneratorLoss(nn.Module):
         # Jpeg Loss
         jpeg_loss = self.mse_loss(self.jpeg(out_images, quality_factor), self.jpeg(target_images, quality_factor))
 
-        # return jpeg_loss, image_loss, 0.001 * adversarial_loss, 0.006 * perception_loss,  2e-8 * tv_loss
         return jpeg_loss, image_loss, adversarial_loss, 0.006 * perception_loss,  2e-8 * tv_loss
 
 

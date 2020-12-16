@@ -30,7 +30,7 @@ def simg_jpeg_compression(image, qf):
     return imgTensor
 
 
-def jpeg_compression(images, qf):
+def jpeg_compression(images, qf, cuda=True):
     imgsTensor = torch.zeros_like(images)
     for i, image in enumerate(images):
         image = TF.to_pil_image(image.cpu())
@@ -39,7 +39,7 @@ def jpeg_compression(images, qf):
         outputIoStream.seek(0)
         image_comp = Image.open(outputIoStream)
         imgsTensor[i, :, :, :] = TF.to_tensor(image_comp)
-    return imgsTensor.cuda()
+    return imgsTensor.cuda() if cuda else imgsTensor
 
 
 class JpegLayerFun(Function):

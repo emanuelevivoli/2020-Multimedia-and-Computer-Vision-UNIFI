@@ -3,14 +3,6 @@ import torch
 from torch import nn
 from utils.jpeg_layer import jpegLayer
 
-#########################
-# Show image inline
-#########################
-# ! import matplotlib.pyplot as plt
-# ! import matplotlib.image as mpimg
-# ! import numpy as np
-#########################
-
 
 class Generator(nn.Module):
     def __init__(self, quality_factor):
@@ -42,16 +34,6 @@ class Generator(nn.Module):
     def forward(self, x, jpeg_number=0):
         jpeg = self.jpeg(x, self.quality_factor)
         # print('#Gen      x:', x.size()) 
-        
-        #########################
-        # Show jpeg images batch
-        # ! jpeg_folder_images = 'JPEG_examples/'
-        # ! temp_jpeg = x
-        # ! temp_jpeg = np.transpose(temp_jpeg.cpu()[0, :, :, :], (1,2,0))
-        # ! imgplot = plt.imshow(temp_jpeg)
-        # ! plt.savefig(jpeg_folder_images + 'forward/' + str(jpeg_number) + '.jpg')
-        #########################
-        
         block1 = self.block1(jpeg)
         # print('#Gen block1:', block1.size()) 
         block2 = self.block2(block1)
@@ -125,8 +107,10 @@ class VGGStyleDiscriminator128(nn.Module):
         num_feat (int): Channel number of base intermediate features. Default: 64.
     """
 
-    def __init__(self, num_in_ch=3, num_feat=64, num_out=1):
+    def __init__(self, num_in_ch=3, num_feat=64, num_out=1, sigmoid_out=True):
         super(VGGStyleDiscriminator128, self).__init__()
+
+        self.sigmoid_out = sigmoid_out
 
         self.conv0_0 = nn.Conv2d(num_in_ch, num_feat, 3, 1, 1, bias=True)
         self.conv0_1 = nn.Conv2d(num_feat, num_feat, 4, 2, 1, bias=False)
@@ -194,8 +178,11 @@ class VGGStyleDiscriminator128(nn.Module):
         feat = feat.view(feat.size(0), -1)
         feat = self.lrelu(self.linear1(feat))
 
-        out = self.linear2(feat)
-
+        out = self.linear2(feat) 
+        
+        # ! added by me
+        out = torch.sigmoid(out) if self.sigmoid_out else out
+        
         return out
 
 class ResidualBlock(nn.Module):

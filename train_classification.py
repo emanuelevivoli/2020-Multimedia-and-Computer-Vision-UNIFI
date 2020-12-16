@@ -39,13 +39,13 @@ if __name__ == '__main__':
 
     torch.autograd.set_detect_anomaly(True)
     
-    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
+    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, crop_numb=100)
     # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
     val_set = TrainDatasetFromFolder('data/DIV2K_valid_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
     
-    netD = VGGStyleDiscriminator128(num_out=1)
+    netD = VGGStyleDiscriminator128(num_out=1, sigmoid_out=False)
     print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
     
     discriminator_criterion = nn.BCEWithLogitsLoss()
@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
         running_results = {'batch_sizes': 0, 'd_loss': 0, 'real_score': 0, 'jpeg_score': 0}
 
-        train_images = []
+        # train_images = []
 
         netD.train()
         for jpeg, target in train_bar:
@@ -115,7 +115,7 @@ if __name__ == '__main__':
             running_results['real_score'] += torch.sigmoid(real_out).mean().item() * batch_size
             running_results['jpeg_score'] += torch.sigmoid(fake_out).mean().item() * batch_size
             
-            train_images.extend([display_transform()(real_img[0].data.cpu().squeeze(0)), display_transform()(fake_img[0].data.cpu().squeeze(0))])
+            # train_images.extend([display_transform()(real_img[0].data.cpu().squeeze(0)), display_transform()(fake_img[0].data.cpu().squeeze(0))])
 
             train_bar.set_description(desc='[%d/%d] (TRAIN) Loss_D: %.4f D(x): %.4f D(Jpeg(x)): %.4f' % (
                 epoch, NUM_EPOCHS, 
@@ -129,25 +129,26 @@ if __name__ == '__main__':
         if not os.path.exists(train_out_path):
             os.makedirs(train_out_path)
         
-        # save images (train)
-        train_images = torch.stack(train_images)
-        train_images = torch.chunk(train_images, train_images.size(0) // 15)
-        val_save_bar = tqdm(train_images, desc='[saving training results]')
-        index = 1
-        for image in val_save_bar:
-            image = utils.make_grid(image, nrow=4, padding=5)
-            utils.save_image(image, train_out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
-            index += 1
+        # ? save images (train)
+        # train_images = torch.stack(train_images)
+        # train_images = torch.chunk(train_images, train_images.size(0) // 15)
+        # val_save_bar = tqdm(train_images, desc='[saving training results]')
+        # index = 1
+        # for image in val_save_bar:
+        #     image = utils.make_grid(image, nrow=4, padding=5)
+        #     utils.save_image(image, train_out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
+        #     index += 1
 
-        # create folders for save data/images (val)
-        val_out_path = pre_path + 'val_results/' + file_name + '/'
-        if not os.path.exists(val_out_path):
-            os.makedirs(val_out_path)
+        # ? create folders for save data/images (val)
+        # val_out_path = pre_path + 'val_results/' + file_name + '/'
+        # if not os.path.exists(val_out_path):
+        #     os.makedirs(val_out_path)
         
+        netD.eval()
         with torch.no_grad():
             val_bar = tqdm(val_loader)
             valing_results = {'batch_sizes': 0, 'd_loss': 0, 'real_score': 0, 'jpeg_score': 0}
-            val_images = []
+            # val_images = []
 
             for val_jr, val_hr in val_bar:
 
@@ -182,7 +183,7 @@ if __name__ == '__main__':
                 valing_results['real_score'] += torch.sigmoid(val_real_out).mean().item() * batch_size
                 valing_results['jpeg_score'] += torch.sigmoid(val_fake_out).mean().item() * batch_size
                 
-                val_images.extend([display_transform()(val_real_img[0].data.cpu().squeeze(0)), display_transform()(val_fake_img[0].data.cpu().squeeze(0))])
+                # val_images.extend([display_transform()(val_real_img[0].data.cpu().squeeze(0)), display_transform()(val_fake_img[0].data.cpu().squeeze(0))])
 
                 val_bar.set_description(desc='[%d/%d] (VAL) Loss_D: %.4f D(x): %.4f D(Jpeg(x)): %.4f' % (
                     epoch, NUM_EPOCHS, 
@@ -190,17 +191,17 @@ if __name__ == '__main__':
                     valing_results['real_score'] / valing_results['batch_sizes'],
                     valing_results['jpeg_score'] / valing_results['batch_sizes']))
 
-            val_images = torch.stack(val_images)
-            val_images = torch.chunk(val_images, val_images.size(0) // 15)
-            val_save_bar = tqdm(val_images, desc='[saving validation results]')
-            index = 1
-            for image in val_save_bar:
-                image = utils.make_grid(image, nrow=4, padding=5)
-                utils.save_image(image, val_out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
-                index += 1
+            # val_images = torch.stack(val_images)
+            # val_images = torch.chunk(val_images, val_images.size(0) // 15)
+            # val_save_bar = tqdm(val_images, desc='[saving validation results]')
+            # index = 1
+            # for image in val_save_bar:
+            #     image = utils.make_grid(image, nrow=4, padding=5)
+            #     utils.save_image(image, val_out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
+            #     index += 1
     
         # ? save model parameters
-        # torch.save(netD.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netD.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
+        torch.save(netD.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netD.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
         
         results['TRAIN_d_loss'].append(running_results['d_loss'] / running_results['batch_sizes'])
         results['TRAIN_real_score'].append(running_results['real_score'] / running_results['batch_sizes'])
