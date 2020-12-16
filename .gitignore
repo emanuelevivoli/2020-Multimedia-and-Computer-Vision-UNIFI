@@ -7,9 +7,13 @@ data/
 # - training_results
 ## results_SRGAN/
 ## results_CRGAN/
+## results_JPEG_CLASSIFICATION/
 *.pth
 *.csv
 *.png
+
+!results_CRGAN/epochs/run15-12-2020_23:34:50_crop128_batch64_upscale2_qf20_epoch3_netD.pth
+!results_CRGAN/epochs/run15-12-2020_23:34:50_crop128_batch64_upscale2_qf20_epoch5_netD.pth
 
 # Python runtime files
 __pycache__
