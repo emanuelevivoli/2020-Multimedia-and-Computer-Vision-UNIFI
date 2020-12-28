@@ -9,6 +9,7 @@ from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, Ce
 from utils.jpeg_layer import jpeg_compression_transform, simg_jpeg_compression, jpeg_compression
 # from utils.custom_trasform import NRandomCrop
 
+from numpy import asarray, clip
 
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG'])
@@ -83,19 +84,20 @@ class TrainDatasetFromFolder(Dataset):
 
 
 class ValDatasetFromFolder(Dataset):
-    def __init__(self, dataset_dir, upscale_factor, quality_factor):
+    def __init__(self, dataset_dir, crop_size, upscale_factor, quality_factor):
         super(ValDatasetFromFolder, self).__init__()
         self.upscale_factor = upscale_factor
         self.quality_factor = quality_factor
         self.image_filenames = [join(dataset_dir, x) for x in listdir(dataset_dir) if is_image_file(x)]
+        self.crop_size = crop_size
         # self.jr_transform = jr_transform(quality_factor)
 
     def __getitem__(self, index):
         hr_image = Image.open(self.image_filenames[index])
         w, h = hr_image.size
-        crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
+        # crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
 
-        hr_image = ToTensor()(CenterCrop(crop_size)(hr_image))
+        hr_image = ToTensor()(CenterCrop(self.crop_size)(hr_image))
         jr_image = simg_jpeg_compression(hr_image, self.quality_factor)
 
         return jr_image, hr_image
@@ -103,3 +105,16 @@ class ValDatasetFromFolder(Dataset):
     def __len__(self):
         return len(self.image_filenames)
 
+def scalePixels(image):
+    pixels = asarray(image.cpu())
+    # convert from integers to floats
+    pixels = pixels.astype('float32')
+    # calculate global mean and standard deviation
+    mean, std = pixels.mean(), pixels.std()
+    print('Mean: %.3f, Standard Deviation: %.3f' % (mean, std))
+    # global standardization of pixels
+    pixels = (pixels - mean) / std
+    # clip pixel values to [-1,1]
+    pixels = clip(pixels, -1.0, 1.0)
+    print('Min: %.3f, Max: %.3f' % (pixels.min(), pixels.max()))
+    return torch.Tensor(pixels).cuda()

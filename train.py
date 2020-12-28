@@ -2,6 +2,9 @@ import argparse
 import os
 from math import log10
 
+import lpips
+# from lpips_pytorch import LPIPS, lpips
+
 import pandas as pd
 import torch.optim as optim
 import torch.utils.data
@@ -11,7 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import pytorch_ssim
-from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform, weight_init
+from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform, scalePixels, weight_init
 from loss import GeneratorLoss
 import torch.nn as nn
 from model import Generator, VGGStyleDiscriminator128 # , Discriminator
@@ -24,6 +27,7 @@ parser.add_argument('--batch_size', default=64, type=int, help='training batch s
 parser.add_argument('--upscale_factor', default=2, type=int, choices=[2, 4, 8], help='re-sizing upscale factor')
 parser.add_argument('--quality_factor', default=20, type=int, choices=[10, 20, 30, 40], help='dagrading quality factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number')
+parser.add_argument('--loss_choice', default='CUSTOM', type=str, choices=['CUSTOM', 'BCE'], help='type of loss')
 parser.add_argument('--skip_gen', default=False, type=bool, choices=[True, False], help='Jpeg input for Discriminator (no uses of Generator at all) if skip_gen = True')
 
 
@@ -39,12 +43,19 @@ if __name__ == '__main__':
     QUALITY_FACTOR = opt.quality_factor
     NUM_EPOCHS = opt.num_epochs
     SKIP_GEN = opt.skip_gen
+    LOSS = opt.loss_choice
 
-    weight_path_netD = 'results_CRGAN/epochs/run15-12-2020_23:34:50_crop128_batch64_upscale2_qf20_epoch5_netD.pth'
+    loss_fn_alex = lpips.LPIPS(net='alex', spatial=True) # best forward scores
+    # lpips_criterion = LPIPS(
+    #     net_type='alex',  # choose a network type from ['alex', 'squeeze', 'vgg']
+    #     version='0.1'  # Currently, v0.1 is supported
+    # )
+
+    # weight_path_netD = 'results_CRGAN/epochs/run15-12-2020_23:34:50_crop128_batch64_upscale2_qf20_epoch5_netD.pth'
 
     torch.autograd.set_detect_anomaly(True)
     
-    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, crop_numb=64)
+    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, crop_numb=100)
     # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
     val_set = TrainDatasetFromFolder('data/DIV2K_valid_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, train=False)
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=BATCH_SIZE, shuffle=True)
@@ -57,37 +68,42 @@ if __name__ == '__main__':
     print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
 
     # ! load weights for Discriminator
-    netD.load_state_dict(torch.load(weight_path_netD))
+    # netD.load_state_dict(torch.load(weight_path_netD))
 
     # ! xavier inizialization
     weight_init(netG)
-    # weight_init(netD)
-    
+    weight_init(netD)
+
     generator_criterion = GeneratorLoss()
-    discriminator_criterion = nn.BCELoss()
     
+
     if torch.cuda.is_available():
         netG.cuda()
         netD.cuda()
         generator_criterion.cuda()
-        discriminator_criterion.cuda()
-    
+        loss_fn_alex.cuda()
+
+    if LOSS == 'BCE':
+        discriminator_criterion = nn.BCELoss()
+        if torch.cuda.is_available():
+            discriminator_criterion.cuda()
+
     optimizerG = optim.Adam(netG.parameters())
     optimizerD = optim.Adam(netD.parameters())
-    
-    results = { 'TRAIN_d_loss': [], 'TRAIN_g_loss': [], 
+
+    results = { 'TRAIN_d_loss': [], 'TRAIN_g_loss': [],
                 'TRAIN_d_score': [], 'TRAIN_g_score': [],
-                
+
                 'VAL_d_loss': [],
                 'VAL_d_score': [], 'VAL_g_score': [],
-                
+
                 'jpeg_loss': [], 'gen_loss': [], 'vgg_loss': [], 'mse_loss': [], 'tv_loss': [],
-                
+
                 #, 'psnr': [], 'ssim': []
                 }
-    
+
     pre_path = 'results_' + MODEL_NAME + '/'
-    
+
     for epoch in range(1, NUM_EPOCHS + 1):
         train_bar = tqdm(train_loader)
 
@@ -119,7 +135,8 @@ if __name__ == '__main__':
             # else:
             #     fake_img = netG(z)
 
-            netD.zero_grad()
+            optimizerD.zero_grad()
+            
 
             # real_out = netD(real_img).mean()
             # fake_out = netD(fake_img).mean()
@@ -130,37 +147,49 @@ if __name__ == '__main__':
             if torch.cuda.is_available():
                 real_img = real_img.cuda()
                 fake_img = fake_img.cuda()
-            
+
             real_out = netD(real_img)
             fake_img = netG(fake_img)
             fake_out = netD(fake_img)
 
-            output = torch.cat((real_out, fake_out), 0).view(-1)
+            if LOSS == 'BCE':
+                output = torch.cat((real_out, fake_out), 0).view(-1)
+                labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
+                labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
+                labels = torch.cat((labels_ones, labels_zero), 0).view(-1)
+                if torch.cuda.is_available():
+                    output = output.cuda()
+                    labels = labels.cuda()
+                d_loss = discriminator_criterion(output, labels)
+            else:
+                d_loss = - (torch.log(real_out.mean()) + torch.log(1 - fake_out.mean()))
 
-            labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
-            labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
-            labels = torch.cat((labels_ones, labels_zero), 0).view(-1)
-
-            if torch.cuda.is_available():
-                output = output.cuda()
-                labels = labels.cuda()
-            
-            d_loss = discriminator_criterion(output, labels)
+            # print(d_loss.size())
+            d_loss.backward(retain_graph=True)
             
             # ? d_loss = torch.log(1 - real_out + fake_out)
             # d_loss = 1 - real_out + fake_out
             # d_loss = - (torch.log(real_out) + torch.log(1 - fake_out))
-            
-            d_loss.backward(retain_graph=True)
+            # d_loss.backward(retain_graph=True)
+
             optimizerD.step()
     
             ############################
             # (2) Update G network: minimize 1-D(G(z)) + Perception Loss + Image Loss + TV Loss
             ###########################
-            netG.zero_grad()
+            optimizerG.zero_grad()
+
             jpeg_loss, mse_loss, gen_loss, vgg_loss, tv_loss = generator_criterion(fake_out, fake_img, real_img, QUALITY_FACTOR)
             # g_loss = gen_loss * 0.001 + vgg_loss + mse_loss + tv_loss # + jpeg_loss
+
+            # print(jpeg_loss.size())
+            # print(mse_loss.size())
+            # print(gen_loss.size())
+            # print(vgg_loss.size())
+            # print(tv_loss.size())
+
             g_loss = gen_loss * 0.001 + vgg_loss + mse_loss + tv_loss + jpeg_loss
+            # print(g_loss.size())
             g_loss.backward()
             
             # fake_img = netG(fake_img)
@@ -180,8 +209,8 @@ if __name__ == '__main__':
             running_results['d_loss'] += d_loss.item() * batch_size
             
             # ? D_SCORE (real_out) e G_SCORE (fake_out)
-            running_results['d_score'] += real_out.item() * batch_size
-            running_results['g_score'] += fake_out.item() * batch_size
+            running_results['d_score'] += real_out.mean().item() * batch_size
+            running_results['g_score'] += fake_out.mean().item() * batch_size
     
             train_bar.set_description(desc='[%d/%d] (TRAIN) Loss [ D | G ]: [%.4f | %.4f] - Score [D(x) | D(G(x))]: [%.4f | %.4f] ' % (
                 epoch, NUM_EPOCHS, running_results['d_loss'] / running_results['batch_sizes'],
@@ -200,12 +229,14 @@ if __name__ == '__main__':
         with torch.no_grad():
             val_bar = tqdm(val_loader)
             # valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
-            valing_results = {'batch_sizes': 0, 'd_loss': 0, 'd_score': 0, 'g_score': 0}
+            valing_scores = {'batch_sizes': 0, 'd_loss': 0, 'd_score': 0, 'g_score': 0}
+            valing_results = {'batch_sizes': 0, 'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'lpips': 0}
             val_images = []
 
             for val_jr, val_hr in val_bar:
 
                 batch_size = val_jr.size(0)
+                valing_scores['batch_sizes'] += batch_size
                 valing_results['batch_sizes'] += batch_size
 
                 val_real_img = Variable(val_hr)
@@ -219,30 +250,51 @@ if __name__ == '__main__':
                 val_fake_img = netG(val_fake_img)
                 val_fake_out = netD(val_fake_img)
 
-                val_output = torch.cat((val_real_out, val_fake_out), 0).view(-1)
+                if LOSS == 'BCE':
+                    val_output = torch.cat((val_real_out, val_fake_out), 0).view(-1)
+                    val_labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
+                    val_labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
+                    val_labels = torch.cat((val_labels_ones, val_labels_zero), 0).view(-1)
+                    if torch.cuda.is_available():
+                        val_output = val_output.cuda()
+                        val_labels = val_labels.cuda()
+                    val_d_loss = discriminator_criterion(val_output, val_labels)
+                else:
+                    val_d_loss = - (torch.log(val_real_out) + torch.log(1 - val_fake_out))
 
-                val_labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
-                val_labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
-                val_labels = torch.cat((val_labels_ones, val_labels_zero), 0).view(-1)
-
-                if torch.cuda.is_available():
-                    val_output = val_output.cuda()
-                    val_labels = val_labels.cuda()
-                
-                val_d_loss = discriminator_criterion(val_output, val_labels)
-                
                 # loss for current batch before optimization 
-                valing_results['d_loss'] += val_d_loss.item() * batch_size
+                valing_scores['d_loss'] += val_d_loss.item() * batch_size
 
-                valing_results['d_score'] += (val_real_out).mean().item() * batch_size
-                valing_results['g_score'] += (val_fake_out).mean().item() * batch_size
+                valing_scores['d_score'] += (val_real_out).mean().item() * batch_size
+                valing_scores['g_score'] += (val_fake_out).mean().item() * batch_size
                 
-                # batch_mse = ((jrr - hr) ** 2).data.mean()
-                # valing_results['mse'] += batch_mse * batch_size
-                # batch_ssim = pytorch_ssim.ssim(jrr, hr).item()
-                # valing_results['ssims'] += batch_ssim * batch_size
-                # valing_results['psnr'] = 10 * log10((hr.max()**2) / (valing_results['mse'] / valing_results['batch_sizes']))
-                # valing_results['ssim'] = valing_results['ssims'] / valing_results['batch_sizes']
+                batch_mse = ((val_fake_img - val_real_img) ** 2).data.mean()
+                valing_results['mse'] += batch_mse * batch_size
+                batch_ssim = pytorch_ssim.ssim(val_fake_img, val_real_img).item()
+                valing_results['ssims'] += batch_ssim * batch_size
+                valing_results['psnr'] = 10 * log10((val_real_img.max()**2) / (valing_results['mse'] / valing_results['batch_sizes']))
+                valing_results['ssim'] = valing_results['ssims'] / valing_results['batch_sizes']
+                
+                # print(val_real_img.size())
+                # print(val_fake_img.size())
+                
+                # lpips_real_img = lpips.im2tensor(val_real_img)
+                # lpips_fake_img = lpips.im2tensor(val_fake_img)
+
+                # ! scale
+                scaled_real_img = scalePixels(val_real_img)
+                scaled_fake_img = scalePixels(val_fake_img)
+                valing_results['lpips'] = loss_fn_alex.forward(scaled_real_img, scaled_fake_img).squeeze().mean()
+                
+                # ? no scale
+                # ? valing_results['lpips'] = loss_fn_alex(val_real_img, val_fake_img)
+
+
+                # valing_results['lpips'] = lpips_criterion(val_real_img, val_fake_img)
+
+                # print(valing_results['lpips'])
+                # print(valing_results['lpips'].size())
+                
                 # val_bar.set_description(
                 #     desc='[Validation] Jpeg: [%d|%d|%d|%d] Real: [%d|%d|%d|%d] Fake: [%d|%d|%d|%d]' % (
                 #         val_jr.size(0), val_jr.size(1), val_jr.size(2), val_jr.size(3),
@@ -250,11 +302,14 @@ if __name__ == '__main__':
                 #         jrr.size(0), jrr.size(1), jrr.size(2), jrr.size(3),
                 #         ))
 
-                val_bar.set_description(desc='[%d/%d] (VAL)   Loss [ D | G ]: [%.4f |  ???  ] - Score [D(x) | D(G(x))]: [%.4f | %.4f]' % (
+                val_bar.set_description(desc='[%d/%d] (VAL)   Loss [ D | G ]: [%.4f |  ???  ] - Score [D(x) | D(G(x))]: [%.4f | %.4f] - SSIM|PSNR|LPIPS: [%.4f | %.4f | %.4f]' % (
                     epoch, NUM_EPOCHS, 
-                    valing_results['d_loss'] / valing_results['batch_sizes'],
-                    valing_results['d_score'] / valing_results['batch_sizes'],
-                    valing_results['g_score'] / valing_results['batch_sizes']))
+                    valing_scores['d_loss'] / valing_scores['batch_sizes'],
+                    valing_scores['d_score'] / valing_scores['batch_sizes'],
+                    valing_scores['g_score'] / valing_scores['batch_sizes'],
+                    valing_results['ssim'] / valing_results['batch_sizes'],
+                    valing_results['psnr'] / valing_results['batch_sizes'],
+                    valing_results['lpips'] / valing_results['batch_sizes']))
 
                 val_images.extend(
                     [display_transform()(val_jr.squeeze(0)), display_transform()(val_hr.squeeze(0)),
@@ -280,9 +335,9 @@ if __name__ == '__main__':
         results['TRAIN_d_score'].append(running_results['d_score'] / running_results['batch_sizes'])
         results['TRAIN_g_score'].append(running_results['g_score'] / running_results['batch_sizes'])
 
-        results['VAL_d_loss'].append(valing_results['d_loss'] / valing_results['batch_sizes'])
-        results['VAL_d_score'].append(valing_results['d_score'] / valing_results['batch_sizes'])
-        results['VAL_g_score'].append(valing_results['g_score'] / valing_results['batch_sizes'])
+        results['VAL_d_loss'].append(valing_scores['d_loss'] / valing_scores['batch_sizes'])
+        results['VAL_d_score'].append(valing_scores['d_score'] / valing_scores['batch_sizes'])
+        results['VAL_g_score'].append(valing_scores['g_score'] / valing_scores['batch_sizes'])
 
         results['jpeg_loss'].append(losses_results['jpeg_loss'] / running_results['batch_sizes'])
         results['gen_loss'].append(losses_results['gen_loss'] / running_results['batch_sizes'])

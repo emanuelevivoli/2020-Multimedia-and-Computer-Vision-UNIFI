@@ -20,7 +20,9 @@ class GeneratorLoss(nn.Module):
         # Adversarial Loss (l^{SR}_{GEN})
         # ? adversarial_loss = 1 - out_labels
         # ??? adversarial_loss = torch.mean(1 - out_labels)
-        adversarial_loss = - torch.log(out_labels)
+        # adversarial_loss = - torch.log(out_labels)
+        adversarial_loss = torch.mean(1 - out_labels)
+        
         # Perception Loss (l^{SR}_{VGG})
         perception_loss = self.mse_loss(self.loss_network(out_images), self.loss_network(target_images))
         # Image Loss (l^{SR}_{MSE})

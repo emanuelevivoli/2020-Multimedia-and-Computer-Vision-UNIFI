@@ -40,19 +40,19 @@ if __name__ == '__main__':
     torch.autograd.set_detect_anomaly(True)
     
     train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR, crop_numb=100)
-    # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
-    val_set = TrainDatasetFromFolder('data/DIV2K_valid_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
+    val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
+    # val_set = TrainDatasetFromFolder('data/DIV2K_valid_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR, quality_factor=QUALITY_FACTOR)
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
     
-    netD = VGGStyleDiscriminator128(num_out=1, sigmoid_out=False)
+    netD = VGGStyleDiscriminator128(num_out=1) # , sigmoid_out=False)
     print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
     
-    discriminator_criterion = nn.BCEWithLogitsLoss()
+    # discriminator_criterion = nn.BCEWithLogitsLoss()
     
     if torch.cuda.is_available():
         netD.cuda()
-        discriminator_criterion.cuda()
+        # discriminator_criterion.cuda()
     
     discriminator_optimizer = optim.Adam(netD.parameters())
     
@@ -87,21 +87,23 @@ if __name__ == '__main__':
                 real_img = real_img.cuda()
                 fake_img = fake_img.cuda()
             
-            real_out = netD(real_img)
-            fake_out = netD(fake_img)
+            real_out = netD(real_img).mean()
+            fake_out = netD(fake_img).mean()
             
-            output = torch.cat((real_out, fake_out), 0).view(-1)
+            # output = torch.cat((real_out, fake_out), 0).view(-1)
 
-            labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
-            labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
-            labels = torch.cat((labels_ones, labels_zero), 0).view(-1)
+            # labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
+            # labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
+            # labels = torch.cat((labels_ones, labels_zero), 0).view(-1)
 
-            if torch.cuda.is_available():
-                output = output.cuda()
-                labels = labels.cuda()
+            # if torch.cuda.is_available():
+            #     output = output.cuda()
+            #     labels = labels.cuda()
             
-            d_loss = discriminator_criterion(output, labels)
-            d_loss.backward()
+            # d_loss = discriminator_criterion(output, labels)
+
+            d_loss = - (torch.log(real_out) + torch.log(1 - fake_out))
+            d_loss.backward(retain_graph=True)
             discriminator_optimizer.step()
             
             # loss for current batch before optimization 
@@ -112,8 +114,11 @@ if __name__ == '__main__':
             # print(output)
             # print(labels)
 
-            running_results['real_score'] += torch.sigmoid(real_out).mean().item() * batch_size
-            running_results['jpeg_score'] += torch.sigmoid(fake_out).mean().item() * batch_size
+            # running_results['real_score'] += torch.sigmoid(real_out).mean().item() * batch_size
+            # running_results['jpeg_score'] += torch.sigmoid(fake_out).mean().item() * batch_size
+
+            running_results['real_score'] += (real_out).item() * batch_size
+            running_results['jpeg_score'] += (fake_out).item() * batch_size
             
             # train_images.extend([display_transform()(real_img[0].data.cpu().squeeze(0)), display_transform()(fake_img[0].data.cpu().squeeze(0))])
 
@@ -162,26 +167,30 @@ if __name__ == '__main__':
                     val_real_img = val_real_img.cuda()
                     val_fake_img = val_fake_img.cuda()
                 
-                val_real_out = netD(val_real_img)
-                val_fake_out = netD(val_fake_img)
+                val_real_out = netD(val_real_img).mean()
+                val_fake_out = netD(val_fake_img).mean()
                 
-                val_output = torch.cat((val_real_out, val_fake_out), 0).view(-1)
+                # val_output = torch.cat((val_real_out, val_fake_out), 0).view(-1)
 
-                val_labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
-                val_labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
-                val_labels = torch.cat((val_labels_ones, val_labels_zero), 0).view(-1)
+                # val_labels_ones = torch.ones([batch_size, 1], dtype=torch.float32)
+                # val_labels_zero = torch.zeros([batch_size, 1], dtype=torch.float32)
+                # val_labels = torch.cat((val_labels_ones, val_labels_zero), 0).view(-1)
 
-                if torch.cuda.is_available():
-                    val_output = val_output.cuda()
-                    val_labels = val_labels.cuda()
+                # if torch.cuda.is_available():
+                #     val_output = val_output.cuda()
+                #     val_labels = val_labels.cuda()
                 
-                val_d_loss = discriminator_criterion(val_output, val_labels)
+                # val_d_loss = discriminator_criterion(val_output, val_labels)
+                val_d_loss = - (torch.log(val_real_out) + torch.log(1 - val_fake_out))
                 
                 # loss for current batch before optimization 
                 valing_results['d_loss'] += val_d_loss.item() * batch_size
 
-                valing_results['real_score'] += torch.sigmoid(val_real_out).mean().item() * batch_size
-                valing_results['jpeg_score'] += torch.sigmoid(val_fake_out).mean().item() * batch_size
+                # valing_results['real_score'] += torch.sigmoid(val_real_out).mean().item() * batch_size
+                # valing_results['jpeg_score'] += torch.sigmoid(val_fake_out).mean().item() * batch_size
+
+                valing_results['real_score'] += (val_real_out).item() * batch_size
+                valing_results['jpeg_score'] += (val_fake_out).item() * batch_size
                 
                 # val_images.extend([display_transform()(val_real_img[0].data.cpu().squeeze(0)), display_transform()(val_fake_img[0].data.cpu().squeeze(0))])
 
@@ -201,7 +210,7 @@ if __name__ == '__main__':
             #     index += 1
     
         # ? save model parameters
-        torch.save(netD.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netD.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
+        # torch.save(netD.state_dict(), pre_path + 'epochs/run%s_crop%d_batch%d_upscale%d_qf%d_epoch%d_netD.pth' % (DAY_TIME, CROP_SIZE, BATCH_SIZE, UPSCALE_FACTOR, QUALITY_FACTOR, epoch))
         
         results['TRAIN_d_loss'].append(running_results['d_loss'] / running_results['batch_sizes'])
         results['TRAIN_real_score'].append(running_results['real_score'] / running_results['batch_sizes'])
